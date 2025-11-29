@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+py310env/
+.venv
+
+# MLflow
+mlruns/
+mlflow.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated files (optional - uncomment if you don't want to track these)
+# models/
+# data/processed/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# DVC
+.dvc/cache
+.dvc/tmp
+

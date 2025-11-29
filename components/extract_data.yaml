@@ -1,0 +1,97 @@
+name: Extract data
+description: Copy a CSV file, log to MLflow, and return the destination path.
+inputs:
+- {name: raw_src_path, type: String, description: Source path of the CSV file to copy}
+- {name: raw_dest_path, type: String, description: Destination path where the CSV
+    file will be copied}
+outputs:
+- {name: Output, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -c
+    - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+      'mlflow' 'pandas' 'numpy' 'scikit-learn' 'joblib' || PIP_DISABLE_PIP_VERSION_CHECK=1
+      python3 -m pip install --quiet --no-warn-script-location 'mlflow' 'pandas' 'numpy'
+      'scikit-learn' 'joblib' --user) && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def extract_data(raw_src_path , raw_dest_path )  :
+          """
+          Copy a CSV file, log to MLflow, and return the destination path.
+
+          Args:
+              raw_src_path: Source path of the CSV file to copy
+              raw_dest_path: Destination path where the CSV file will be copied
+
+          Returns:
+              String path of the destination file
+          """
+          # Convert to Path objects
+          src_path = Path(raw_src_path)
+          dest_path = Path(raw_dest_path)
+
+          # Ensure destination directory exists
+          dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+          # Start MLflow run
+          with mlflow.start_run(run_name='data_extraction'):
+              # Log source path
+              mlflow.log_param("source_path", str(src_path))
+
+              # Copy the file
+              shutil.copy(src_path, dest_path)
+
+              # Log the copied artifact
+              mlflow.log_artifact(str(dest_path))
+
+              # Log destination path as parameter
+              mlflow.log_param("destination_path", str(dest_path))
+
+          return str(dest_path)
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Extract data', description='Copy a CSV file, log to MLflow, and return the destination path.')
+      _parser.add_argument("--raw-src-path", dest="raw_src_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--raw-dest-path", dest="raw_dest_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = extract_data(**_parsed_args)
+
+      _outputs = [_outputs]
+
+      _output_serializers = [
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --raw-src-path
+    - {inputValue: raw_src_path}
+    - --raw-dest-path
+    - {inputValue: raw_dest_path}
+    - '----output-paths'
+    - {outputPath: Output}

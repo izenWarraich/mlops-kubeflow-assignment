@@ -1,0 +1,8 @@
+mlflow
+dvc
+pandas
+numpy
+scikit-learn
+joblib
+kfp
+

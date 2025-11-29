@@ -1,0 +1,124 @@
+name: Evaluate model
+description: Evaluate the trained model on the test set.
+inputs:
+- {name: processed_path, type: String, description: Path to the processed.pkl file}
+- {name: model_path, type: String, description: Path to the model.pkl file}
+outputs:
+- {name: Output, type: String}
+implementation:
+  container:
+    image: python:3.10
+    command:
+    - sh
+    - -c
+    - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+      'mlflow' 'pandas' 'numpy' 'scikit-learn' 'joblib' || PIP_DISABLE_PIP_VERSION_CHECK=1
+      python3 -m pip install --quiet --no-warn-script-location 'mlflow' 'pandas' 'numpy'
+      'scikit-learn' 'joblib' --user) && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def evaluate_model(processed_path , model_path )  :
+          """
+          Evaluate the trained model on the test set.
+
+          Args:
+              processed_path: Path to the processed.pkl file
+              model_path: Path to the model.pkl file
+
+          Returns:
+              String path to the metrics.txt file
+          """
+          # Convert to Path objects
+          processed_path = Path(processed_path)
+          model_path = Path(model_path)
+
+          # Start MLflow run
+          with mlflow.start_run(run_name="evaluation"):
+              # Load processed.pkl and model.pkl
+              processed_data = joblib.load(processed_path)
+              model = joblib.load(model_path)
+
+              X_test = processed_data['X_test']
+              y_test = processed_data['y_test']
+
+              # Predict on test set
+              y_pred = model.predict(X_test)
+
+              # Calculate MSE and R2 metrics
+              mse = mean_squared_error(y_test, y_pred)
+              r2 = r2_score(y_test, y_pred)
+
+              # Create metrics dictionary
+              metrics = {
+                  'mse': mse,
+                  'r2': r2
+              }
+
+              # Create metrics.txt file
+              metrics_text = f"Model Evaluation Metrics\n"
+              metrics_text += f"========================\n"
+              metrics_text += f"Mean Squared Error (MSE): {mse:.4f}\n"
+              metrics_text += f"R2 Score: {r2:.4f}\n"
+
+              # Save metrics.txt to a file for KFP artifact tracking
+              metrics_file = model_path.parent / "metrics.txt"
+              with open(metrics_file, 'w') as f:
+                  f.write(metrics_text)
+
+              # Log metrics
+              mlflow.log_metric("mse", mse)
+              mlflow.log_metric("r2", r2)
+
+              # Log metrics.txt file as artifact
+              mlflow.log_artifact(str(metrics_file))
+
+              # Log parameters
+              mlflow.log_param("processed_file", str(processed_path))
+              mlflow.log_param("model_file", str(model_path))
+
+          # Return metrics file path for KFP artifact tracking
+          return str(metrics_file)
+
+      def _serialize_str(str_value: str) -> str:
+          if not isinstance(str_value, str):
+              raise TypeError('Value "{}" has type "{}" instead of str.'.format(
+                  str(str_value), str(type(str_value))))
+          return str_value
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Evaluate model', description='Evaluate the trained model on the test set.')
+      _parser.add_argument("--processed-path", dest="processed_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--model-path", dest="model_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=1)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = evaluate_model(**_parsed_args)
+
+      _outputs = [_outputs]
+
+      _output_serializers = [
+          _serialize_str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --processed-path
+    - {inputValue: processed_path}
+    - --model-path
+    - {inputValue: model_path}
+    - '----output-paths'
+    - {outputPath: Output}
